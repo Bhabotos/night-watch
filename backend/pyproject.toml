@@ -1,0 +1,21 @@
+# Tool configuration only. Dependencies are pinned in requirements*.txt.
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["alembic/versions/__pycache__"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "S", "PT", "RUF"]
+ignore = ["B008"]  # FastAPI uses Depends()/Query() in argument defaults
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]  # asserts and dummy passwords in tests
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = ["integration: requires the PostgreSQL service (application network)"]
+filterwarnings = ["error"]

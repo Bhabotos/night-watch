@@ -1,0 +1,6 @@
+# Gitleaks allow-list (https://github.com/gitleaks/gitleaks). Entries are fingerprints: file:rule:line.
+#
+# tests/e2e/check_phase7.sh line 195 feeds DELIBERATELY FAKE values (KEY1234567890, tok_abc123def456)
+# through the log pipeline to prove that Alloy masks secret-looking text before it reaches Loki. They are
+# not credentials. If that line moves, update this entry after re-checking that it is still only the canary.
+tests/e2e/check_phase7.sh:generic-api-key:195

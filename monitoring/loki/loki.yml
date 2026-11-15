@@ -1,0 +1,85 @@
+# Loki (single binary, filesystem storage). Reachable only on the internal `monitoring` network,
+# never published. There is no authentication: network isolation is the access control, and the
+# only clients are Alloy (push) and Grafana/Prometheus (read/scrape).
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_format: json
+  log_level: info
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+
+schema_config:
+  configs:
+    - from: "2024-04-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# Durability of recently ingested logs across restarts (see docs/loki.md, "Restart durability").
+# Loki keeps new entries in memory and in a write-ahead log (WAL). With the defaults, recovery after a
+# restart replays the WAL on top of the last CHECKPOINT and discards entries it believes the checkpoint
+# already holds, using a per-stream counter. A stream that was flushed and re-created after that
+# checkpoint starts counting from 0 again, so its new entries look like duplicates and are DROPPED
+# (found with controlled experiments: 0 of 3 lines survived a restart; 50 entries "discarded as
+# duplicate"). Checkpoints were also rarely fresh: they start 5 minutes after Loki starts and take
+# about 4.5 minutes to write, so any restart within ~10 minutes abandons them.
+ingester:
+  wal:
+    enabled: true
+    dir: /loki/wal
+    # Write the checkpoint over 1 minute instead of 5: it completes quickly and stays fresh.
+    checkpoint_duration: 1m
+    # On a graceful stop write every in-memory chunk to storage, so a restart never depends on WAL
+    # replay for data that was in memory. docker-compose.yml gives Loki 30 s to finish this.
+    flush_on_shutdown: true
+
+limits_config:
+  # Retention is time based only (Loki has no size cap); see docs/loki.md for disk sizing.
+  retention_period: 168h              # 7 days
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  allow_structured_metadata: true     # request_id, status... are searchable without being labels
+  # Guard rails against a label explosion or a runaway producer.
+  max_label_names_per_series: 12
+  max_streams_per_user: 2000
+  ingestion_rate_mb: 4
+  ingestion_burst_size_mb: 8
+  per_stream_rate_limit: 3MB
+  per_stream_rate_limit_burst: 6MB
+  max_line_size: 256KB
+  volume_enabled: true
+  # Do not add automatic labels: `service` and `level` are set by Alloy and are enough.
+  discover_service_name: []
+  discover_log_levels: false
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+  # Deletes (used to purge lines that must not be stored) are applied after this window instead of
+  # Loki's default 24 h. Nothing in the stack exposes a delete UI; the API is only reachable on the
+  # internal monitoring network.
+  delete_request_cancel_period: 1m
+  retention_delete_delay: 2h
+
+query_range:
+  align_queries_with_step: true
+
+analytics:
+  reporting_enabled: false            # no usage reporting to grafana.com

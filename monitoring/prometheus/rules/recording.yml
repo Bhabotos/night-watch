@@ -1,0 +1,60 @@
+# Recording rules: precomputed series used by the Grafana dashboards and alert rules (Phases 7-8).
+# Naming follows level:metric:operations. Denominators are clamped so idle periods give 0, not NaN.
+groups:
+  - name: application
+    interval: 15s
+    rules:
+      - record: app:http_requests:rate5m
+        expr: sum(rate(http_requests_total{job="backend"}[5m]))
+      - record: app:http_requests_by_route:rate5m
+        expr: sum by (method, path, status) (rate(http_requests_total{job="backend"}[5m]))
+      - record: app:http_errors:ratio_rate5m
+        expr: |
+          (sum(rate(http_requests_total{job="backend", status=~"5.."}[5m])) or vector(0))
+            /
+          clamp_min(sum(rate(http_requests_total{job="backend"}[5m])), 1e-9)
+      - record: app:http_request_duration_seconds:p95_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{job="backend"}[5m])))
+      - record: app:db_query_duration_seconds:p95_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(db_query_duration_seconds_bucket{job="backend"}[5m])))
+      - record: app:db_pool_utilisation:ratio
+        expr: |
+          sum(db_pool_connections{job="backend", state="checked_out"})
+            /
+          clamp_min(sum(db_pool_connections{job="backend", state=~"checked_out|checked_in"}), 1)
+
+  - name: host
+    interval: 15s
+    rules:
+      # Busy time / cores. Computed from the non-idle modes, not 1 - idle: under WSL2/Hyper-V the
+      # idle counter under-ticks and `1 - idle` reads ~90% on an idle VM.
+      - record: instance:node_cpu_utilisation:ratio
+        expr: |
+          sum by (instance) (rate(node_cpu_seconds_total{job="node", mode!~"idle|iowait|steal"}[5m]))
+            /
+          count by (instance) (node_cpu_seconds_total{job="node", mode="idle"})
+      - record: instance:node_memory_utilisation:ratio
+        expr: 1 - node_memory_MemAvailable_bytes{job="node"} / node_memory_MemTotal_bytes{job="node"}
+      - record: instance:node_filesystem_utilisation:ratio
+        # One series per device. In the container this is the root overlay (device="overlay"), whose
+        # usage is that of the Docker data disk.
+        expr: |
+          max by (instance, device, fstype) (
+            1 - node_filesystem_avail_bytes{job="node", fstype!~"tmpfs|squashfs"}
+                  / node_filesystem_size_bytes{job="node", fstype!~"tmpfs|squashfs"}
+          )
+
+  - name: postgres
+    interval: 15s
+    rules:
+      - record: postgres:connections:ratio
+        expr: |
+          sum(pg_stat_activity_count{job="postgres"})
+            /
+          max(pg_settings_max_connections{job="postgres"})
+      - record: postgres:transactions:rate5m
+        expr: sum(rate(pg_stat_database_xact_commit{job="postgres"}[5m]) + rate(pg_stat_database_xact_rollback{job="postgres"}[5m]))

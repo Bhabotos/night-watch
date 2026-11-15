@@ -1,0 +1,515 @@
+# Phase 2 skeleton: networks, volumes and PostgreSQL only.
+# Later phases add backend, nginx, prometheus, exporters, loki, alloy, grafana.
+# See docs/architecture.md for the network design and its limits.
+name: monitoring-3tier
+
+networks:
+  # External connectivity; nginx and Grafana (later phases).
+  edge:
+    driver: bridge
+  # nginx <-> backend only. No outbound route.
+  proxy:
+    driver: bridge
+    internal: true
+  # Data tier (backend, postgres, postgres-exporter). No outbound route.
+  application:
+    driver: bridge
+    internal: true
+  # Scrape traffic. No outbound route.
+  metrics:
+    driver: bridge
+    internal: true
+  # Observability internals. No outbound route.
+  monitoring:
+    driver: bridge
+    internal: true
+  # The ONLY purpose of this network is to let docker publish 127.0.0.1:9090 for the Prometheus UI
+  # (Docker cannot publish a port from a container that is only on internal networks). It is
+  # deliberately NOT internal and contains ONLY the prometheus-ui forwarder: nginx, Grafana and
+  # Prometheus are never attached to it.
+  uiaccess:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: monitoring-3tier_postgres_data
+  prometheus_data:
+    name: monitoring-3tier_prometheus_data
+  grafana_data:
+    name: monitoring-3tier_grafana_data
+  loki_data:
+    name: monitoring-3tier_loki_data
+  alloy_data:
+    name: monitoring-3tier_alloy_data
+
+services:
+  postgres:
+    image: postgres:18.7-alpine3.24
+    restart: unless-stopped
+    networks: [application]
+    # No "ports:" - PostgreSQL is never published.
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:?set POSTGRES_ADMIN_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set POSTGRES_ADMIN_PASSWORD in .env}
+      POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=scram-sha-256
+      APP_DB_NAME: ${APP_DB_NAME:?set APP_DB_NAME in .env}
+      APP_DB_USER: ${APP_DB_USER:?set APP_DB_USER in .env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+      EXPORTER_DB_USER: ${EXPORTER_DB_USER:?set EXPORTER_DB_USER in .env}
+      EXPORTER_DB_PASSWORD: ${EXPORTER_DB_PASSWORD:?set EXPORTER_DB_PASSWORD in .env}
+    command:
+      - postgres
+      - -c
+      - max_connections=50
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - "log_line_prefix=%m [%p] %q%u@%d: "
+    volumes:
+      # PostgreSQL 18+ expects the mount at /var/lib/postgresql (versioned subdir).
+      - postgres_data:/var/lib/postgresql
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    tmpfs:
+      - /tmp
+      - /run/postgresql
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    shm_size: 128mb
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d postgres -h 127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+      target: runtime
+    image: monitoring-3tier/backend:1.0.0
+    restart: unless-stopped
+    # proxy: nginx -> backend (Phase 4); application: backend -> postgres;
+    # metrics: Prometheus scrapes /metrics (Phase 5). No published ports.
+    networks: [proxy, application, metrics]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${APP_DB_NAME:?set APP_DB_NAME in .env}
+      # The application role only; the superuser credentials are never passed to the backend.
+      DB_USER: ${APP_DB_USER:?set APP_DB_USER in .env}
+      DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+      LOG_LEVEL: ${BACKEND_LOG_LEVEL:-INFO}
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # Lint + tests against the real PostgreSQL, on the application network.
+  # Not started by `up`: docker compose run --rm backend-test
+  backend-test:
+    profiles: [test]
+    build:
+      context: ./backend
+      target: test
+    networks: [application]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${APP_DB_NAME:?set APP_DB_NAME in .env}
+      DB_USER: ${APP_DB_USER:?set APP_DB_USER in .env}
+      DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  # Phase 4: static React build + reverse proxy. The only host-published service for the UI.
+  nginx:
+    build:
+      context: ./frontend
+      target: runtime
+    image: monitoring-3tier/frontend:1.0.0
+    restart: unless-stopped
+    # edge: published port; proxy: the only path to the backend. Not on `application`,
+    # so nginx shares no network with PostgreSQL.
+    networks: [edge, proxy]
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      # Localhost only. Default 8088 (8080 and 3000 are used by other projects on the dev machine);
+      # override with FRONTEND_HOST_PORT in .env.
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-8088}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # Graceful shutdown: SIGQUIT drains in-flight requests (nginx's worker_shutdown_timeout is 20s).
+    stop_signal: SIGQUIT
+    stop_grace_period: 30s
+
+  # ---- Phase 5: metrics ------------------------------------------------------------------
+  # Prometheus bridges `metrics` (scrape targets) and `monitoring` (Grafana, Loki, Alloy later).
+  # Not published; no admin or lifecycle API; no internet egress (both networks are internal).
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    restart: unless-stopped
+    networks: [metrics, monitoring]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+      - --web.listen-address=0.0.0.0:9090
+      - --log.format=json
+    volumes:
+      - prometheus_data:/prometheus
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Host (Docker VM) CPU, memory and network come from /proc, which is not namespaced, so no host
+  # mount is needed. Deliberately NO bind mount of the host filesystem: on Docker Desktop that would
+  # expose the Windows drives (/mnt/host/*) to this container. No host network, no pid:host.
+  # Disk: the container's root filesystem is an overlay whose usage is that of the Docker data disk.
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    restart: unless-stopped
+    networks: [metrics]
+    command:
+      # Only the root mountpoint "/" (the Docker data disk); everything else is container-internal.
+      - --collector.filesystem.mount-points-exclude=^/.+
+      - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tmpfs|tracefs)$$
+      - --web.listen-address=0.0.0.0:9100
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9100/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Connects to PostgreSQL over `application` as the least-privilege pg_monitor role and is
+  # scraped over `metrics`.
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+    restart: unless-stopped
+    networks: [application, metrics]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Plain connection inside the internal network (no TLS between containers).
+      DATA_SOURCE_URI: postgres:5432/${APP_DB_NAME:?set APP_DB_NAME in .env}?sslmode=disable
+      DATA_SOURCE_USER: ${EXPORTER_DB_USER:?set EXPORTER_DB_USER in .env}
+      DATA_SOURCE_PASS: ${EXPORTER_DB_PASSWORD:?set EXPORTER_DB_PASSWORD in .env}
+    command:
+      - --web.listen-address=0.0.0.0:9187
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9187/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ---- Phase 6: dashboards ---------------------------------------------------------------
+  # Grafana bridges `edge` (published port, future alert-webhook egress) and `monitoring`
+  # (Prometheus). It is the only way to query Prometheus, which is not published.
+  # Datasource and dashboards are provisioned read-only from the repo; there is no
+  # anonymous access and no sign-up.
+  grafana:
+    image: grafana/grafana:13.3.1
+    restart: unless-stopped
+    networks: [edge, monitoring]
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    ports:
+      # Localhost only. 3000 is used by other projects on the dev machine.
+      - "127.0.0.1:${GRAFANA_HOST_PORT:-3001}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?set GRAFANA_ADMIN_USER in .env}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_SERVER_ROOT_URL: http://127.0.0.1:${GRAFANA_HOST_PORT:-3001}/
+      # Authentication: login required, nobody can self-register.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+      # Browser hardening.
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_SECURITY_ALLOW_EMBEDDING: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SECURITY_CONTENT_SECURITY_POLICY: "true"
+      GF_AUTH_ANONYMOUS_HIDE_VERSION: "true"   # mask the version for unauthenticated users
+      # Grafana's own /metrics is unauthenticated on the published port and nothing scrapes it.
+      GF_METRICS_ENABLED: "false"
+      # No phoning home: egress is reserved for alert delivery (a later phase).
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_ANALYTICS_FEEDBACK_LINKS_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      # UI and logs.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana-dashboards/application.json
+      GF_LOG_MODE: console
+      GF_LOG_CONSOLE_FORMAT: json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana-dashboards:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # ---- Phase 7: centralized logs ---------------------------------------------------------
+  # Loki, Alloy and the socket proxy live only on the internal `monitoring` network: no published
+  # port, no internet egress. See docs/loki.md and docs/security.md (Docker socket assessment).
+  loki:
+    build:
+      context: ./monitoring/loki
+    image: monitoring-3tier/loki:3.7.10
+    restart: unless-stopped
+    # Time to flush in-memory chunks to storage on a graceful stop (ingester.wal.flush_on_shutdown).
+    stop_grace_period: 30s
+    networks: [monitoring]
+    command:
+      - -config.file=/etc/loki/loki.yml
+    volumes:
+      - loki_data:/loki
+      - ./monitoring/loki/loki.yml:/etc/loki/loki.yml:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+
+  # Collects the stack's container logs. It has NO docker.sock mount: it talks to the filtering
+  # proxy below. Runs as the unprivileged `alloy` user (473).
+  alloy:
+    build:
+      context: ./monitoring/alloy
+    image: monitoring-3tier/alloy:1.22.0
+    restart: unless-stopped
+    user: "473:473"
+    networks: [monitoring]
+    depends_on:
+      loki:
+        condition: service_healthy
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --disable-reporting
+    volumes:
+      - alloy_data:/var/lib/alloy/data
+      - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 384M
+    healthcheck:
+      test: ["CMD", "/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:12345/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # The ONLY container that mounts the Docker socket. It answers Alloy (and nobody else) and only
+  # for GET /containers/json, container inspect, container logs, /networks and /_ping. Everything
+  # else (create, exec, delete, images, volumes, info, ...) is refused. `:ro` on the socket does not
+  # make the Docker API read-only; the method/path allow-list below does. It runs as nobody with
+  # group 0 only because Docker Desktop's socket is root:root 0660 (on Linux set DOCKER_SOCKET_GID
+  # to the docker group id).
+  docker-socket-proxy:
+    build:
+      context: ./monitoring/docker-socket-proxy
+    image: monitoring-3tier/docker-socket-proxy:1.13.2
+    restart: unless-stopped
+    user: "65534:65534"
+    group_add:
+      - "${DOCKER_SOCKET_GID:-0}"
+    networks: [monitoring]
+    depends_on:
+      alloy:
+        condition: service_started   # the proxy resolves the `alloy` name at start-up
+    command:
+      - -listenip=0.0.0.0
+      - -allowfrom=alloy
+      - -allowGET=^(/v1\.[0-9]+)?/(_ping|containers/json|containers/[a-f0-9]{64}/(json|logs)|networks)$$
+      - -allowHEAD=^(/v1\.[0-9]+)?/_ping$$
+      - -allowhealthcheck
+      - -logjson
+      - -loglevel=INFO
+      - -shutdowngracetime=5
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 32M
+    healthcheck:
+      # The health endpoint only answers HEAD and busybox wget can only GET, so check that the
+      # health listener accepts connections.
+      test: ["CMD", "/busybox", "nc", "-z", "127.0.0.1", "55555"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---- Prometheus UI on the Windows host (user request, localhost only) -------------------------------
+  # A minimal TCP forwarder: 127.0.0.1:9090 on the host -> prometheus:9090 on `monitoring`. Prometheus
+  # itself stays unpublished and keeps no egress. The forwarder holds no secrets and no data, runs as
+  # nobody, and is on `uiaccess` (published port) + `monitoring` (reaches Prometheus) only.
+  prometheus-ui:
+    image: alpine/socat:1.8.1.3
+    restart: unless-stopped
+    user: "65534:65534"
+    networks: [uiaccess, monitoring]
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:9090:9090"
+    command:
+      - -d
+      - TCP-LISTEN:9090,fork,reuseaddr,max-children=32
+      - TCP:prometheus:9090
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 32M
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "9090"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

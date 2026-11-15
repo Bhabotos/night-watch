@@ -1,0 +1,14 @@
+# Loads every JSON file under /var/lib/grafana-dashboards (mounted read-only from the repo).
+apiVersion: 1
+
+providers:
+  - name: monitoring-3tier
+    orgId: 1
+    type: file
+    folder: Monitoring
+    disableDeletion: true     # the repo is the source of truth
+    allowUiUpdates: false     # UI edits cannot be saved over the provisioned dashboards
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana-dashboards
+      foldersFromFilesStructure: false

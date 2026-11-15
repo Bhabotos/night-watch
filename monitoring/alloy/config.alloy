@@ -1,0 +1,266 @@
+// Grafana Alloy: collect the stack's container logs and ship them to Loki.
+//
+// Access to Docker goes through the filtering socket proxy (tcp://docker-socket-proxy:2375), never
+// through docker.sock: this container has no socket mount. The proxy only permits GET on the
+// container list, container inspect, container logs, networks and ping (see docker-compose.yml).
+//
+// Labels are deliberately few and low-cardinality: service, container, level, log_type, job.
+// Request ids, status codes, paths and similar per-request values are Loki *structured metadata*:
+// searchable (| request_id="...") but not indexed, so they cannot blow up the index.
+// Container environment variables are never read or forwarded (discovery exposes labels only).
+
+logging {
+	level  = "info"
+	format = "json"
+}
+
+// ---------------------------------------------------------------------------------------------
+// Discovery: only this Compose project's containers (other projects on the machine are ignored).
+// ---------------------------------------------------------------------------------------------
+discovery.docker "stack" {
+	host             = "tcp://docker-socket-proxy:2375"
+	refresh_interval = "10s"
+
+	filter {
+		name   = "label"
+		values = ["com.docker.compose.project=monitoring-3tier"]
+	}
+}
+
+discovery.relabel "stack" {
+	targets = discovery.docker.stack.targets
+
+	// `docker compose run` helper containers (test runs) are not part of the running stack.
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_oneoff"]
+		regex         = "True"
+		action        = "drop"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+
+	rule {
+		target_label = "job"
+		replacement  = "docker"
+	}
+}
+
+loki.source.docker "stack" {
+	host             = "tcp://docker-socket-proxy:2375"
+	targets          = discovery.relabel.stack.output
+	forward_to       = [loki.process.stack.receiver]
+	refresh_interval = "10s"
+}
+
+// ---------------------------------------------------------------------------------------------
+// Processing
+// ---------------------------------------------------------------------------------------------
+loki.process "stack" {
+	forward_to = [loki.write.loki.receiver]
+
+	// 1. Defence in depth: mask secret-looking values in every line before it leaves Alloy. Each
+	//    expression has exactly one capture group; that group is what gets replaced.
+	stage.replace {
+		// password=..., "password": "...", token: ..., api_key=..., secret=...
+		expression = "(?i)(?:password|passwd|secret|token|api[_-]?key)[\"']?\\s*[:=]\\s*[\"']?([^\\s\"',;&]+)"
+		replace    = "***"
+	}
+
+	stage.replace {
+		// SQL such as CREATE ROLE x PASSWORD 'abc' (PostgreSQL echoes failed statements)
+		expression = "(?i)password\\s+'([^']*)'"
+		replace    = "***"
+	}
+
+	stage.replace {
+		// Authorization: Bearer xyz / Basic xyz
+		expression = "(?i)authorization[\"']?\\s*[:=]\\s*[\"']?(?:bearer|basic)?\\s*([A-Za-z0-9._~+/=-]{8,})"
+		replace    = "***"
+	}
+
+	// 1b. Loki logs every query it executes, including the LogQL text. Anyone searching for a secret
+	//     (Grafana Explore, a script) would otherwise get that secret stored in Loki as a log line,
+	//     and every dashboard refresh would feed back into the logs it reads. Those lines are dropped
+	//     here; they remain available with `docker logs loki`.
+	stage.match {
+		selector            = "{service=\"loki\"} |= \"\\\"query\\\":\\\"\""
+		action              = "drop"
+		drop_counter_reason = "loki_query_log"
+	}
+
+	// Default severity; stages below override it when a level can be parsed (the template stage is
+	// skipped for lines where nothing was extracted, so without this such lines would have no level).
+	stage.static_labels {
+		values = {level = "unknown"}
+	}
+
+	// 2. backend: JSON lines (app/core/logging.py): timestamp, level, logger, message, request_id, ...
+	stage.match {
+		selector = "{service=\"backend\"}"
+
+		stage.json {
+			expressions = {
+				ts         = "timestamp",
+				level      = "level",
+				logger     = "logger",
+				request_id = "request_id",
+				method     = "method",
+				route      = "route",
+				status     = "status",
+			}
+		}
+
+		stage.timestamp {
+			source = "ts"
+			format = "RFC3339Nano"
+		}
+
+		stage.structured_metadata {
+			values = {
+				request_id = "request_id",
+				logger     = "logger",
+				method     = "method",
+				route      = "route",
+				status     = "status",
+			}
+		}
+	}
+
+	// 3. nginx access log: one JSON object per line (see frontend/nginx/nginx.conf). Lines are told
+	//    apart by their shape (loki.source.docker does not label stdout vs stderr). Health-check
+	//    requests from the container itself (busybox wget) are dropped as noise. The level is derived
+	//    from the HTTP status: 5xx = error, 4xx = warning, otherwise info.
+	stage.match {
+		selector = "{service=\"nginx\"} |~ \"^\\\\{\\\"time\\\"\""
+
+		stage.static_labels {
+			values = {log_type = "access"}
+		}
+
+		stage.json {
+			expressions = {
+				ts              = "time",
+				request_id      = "request_id",
+				method          = "method",
+				path            = "path",
+				status          = "status",
+				upstream_status = "upstream_status",
+				user_agent      = "user_agent",
+			}
+		}
+
+		stage.drop {
+			source              = "user_agent"
+			expression          = "^Wget"
+			drop_counter_reason = "healthcheck"
+		}
+
+		stage.timestamp {
+			source = "ts"
+			format = "RFC3339"
+		}
+
+		stage.template {
+			source   = "level"
+			template = "{{ $s := printf \"%v\" .status }}{{ if ge $s \"500\" }}error{{ else if ge $s \"400\" }}warning{{ else }}info{{ end }}"
+		}
+
+		stage.structured_metadata {
+			values = {
+				request_id      = "request_id",
+				method          = "method",
+				path            = "path",
+				status          = "status",
+				upstream_status = "upstream_status",
+			}
+		}
+	}
+
+	// 4. nginx error log: "2026/11/14 13:50:48 [error] 7#7: *1 ..."
+	stage.match {
+		selector = "{service=\"nginx\"} |~ \"^\\\\d{4}/\\\\d{2}/\\\\d{2} \\\\d{2}:\\\\d{2}:\\\\d{2} \\\\[\""
+
+		stage.static_labels {
+			values = {log_type = "error"}
+		}
+
+		stage.regex {
+			expression = "^(?P<ts>\\d{4}/\\d{2}/\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[(?P<level>[a-z]+)\\]"
+		}
+
+		stage.timestamp {
+			source   = "ts"
+			format   = "2006/01/02 15:04:05"
+			location = "UTC"
+		}
+	}
+
+	// 5. nginx startup messages from the entrypoint scripts (neither of the above)
+	stage.match {
+		selector = "{service=\"nginx\"} !~ \"^\\\\{\\\"time\\\"\" !~ \"^\\\\d{4}/\\\\d{2}/\\\\d{2} \\\\d{2}:\\\\d{2}:\\\\d{2} \\\\[\""
+
+		stage.static_labels {
+			values = {log_type = "startup"}
+		}
+	}
+
+	// 6. PostgreSQL: "2026-11-14 13:13:03.249 UTC [1] LOG:  message" or
+	//    "... UTC [50] user@db: FATAL:  message" (log_line_prefix in docker-compose.yml)
+	stage.match {
+		selector = "{service=\"postgres\"}"
+
+		stage.regex {
+			expression = "^(?P<ts>\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3}) UTC \\[\\d+\\] (?:\\S+@\\S+: )?(?P<level>[A-Z]+[0-9]?):"
+		}
+
+		stage.timestamp {
+			source   = "ts"
+			format   = "2006-01-02 15:04:05.000"
+			location = "UTC"
+		}
+	}
+
+	// 7. JSON loggers: Prometheus, Grafana, Loki, Alloy, the socket proxy
+	stage.match {
+		selector = "{service=~\"prometheus|grafana|loki|alloy|docker-socket-proxy\"}"
+
+		stage.json {
+			expressions = {level = "level"}
+		}
+	}
+
+	// 8. logfmt loggers: node-exporter, postgres-exporter ("time=... level=INFO source=... msg=...")
+	stage.match {
+		selector = "{service=~\"node-exporter|postgres-exporter\"}"
+
+		stage.logfmt {
+			mapping = {level = ""}
+		}
+	}
+
+	// 9. One vocabulary for severity across all services: debug, info, warning, error, critical,
+	//    or "unknown" when a line carries no level.
+	stage.template {
+		source   = "level"
+		template = "{{ $v := ToLower .Value }}{{ if eq $v \"\" }}unknown{{ else if eq $v \"warn\" }}warning{{ else if eq $v \"eror\" }}error{{ else if or (eq $v \"crit\") (eq $v \"fatal\") (eq $v \"panic\") (eq $v \"alert\") (eq $v \"emerg\") }}critical{{ else if or (eq $v \"log\") (eq $v \"notice\") (eq $v \"statement\") (eq $v \"detail\") (eq $v \"hint\") (eq $v \"context\") }}info{{ else }}{{ $v }}{{ end }}"
+	}
+
+	stage.labels {
+		values = {level = "level"}
+	}
+}
+
+loki.write "loki" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

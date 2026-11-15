@@ -1,0 +1,23 @@
+# Loki datasource (Phase 7), provisioned read-only like the Prometheus one.
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy            # Grafana's backend queries Loki; the browser never talks to it
+    url: http://loki:3100
+    isDefault: false
+    editable: false
+    jsonData:
+      maxLines: 1000
+      timeout: 60
+      # request_id is structured metadata (not a label). Clicking it in a log line opens every
+      # log line of that request across services (nginx and backend share the id).
+      derivedFields:
+        - name: request_id
+          matcherType: label
+          matcherRegex: request_id
+          url: '{job="docker"} | request_id="$${__value.raw}"'
+          datasourceUid: loki
+          urlDisplayLabel: "Whole request"

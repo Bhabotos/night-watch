@@ -1,0 +1,18 @@
+# Datasources are provisioned from this file; they cannot be edited or deleted in the UI.
+apiVersion: 1
+
+# Remove any datasource with this name that was created by hand, so the file is the only source.
+deleteDatasources: []
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy            # Grafana's backend queries Prometheus; the browser never talks to it
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s      # matches Prometheus' scrape interval
+      manageAlerts: false    # alert rules come from Grafana Alerting (a later phase)
