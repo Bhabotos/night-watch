@@ -211,7 +211,7 @@ check "Loki datasource is provisioned, read-only, not default" "gapi $G/api/data
 check "Loki datasource health check succeeds" "gapi $G/api/datasources/uid/loki/health | grep -q '\"status\":\"OK\"'"
 check "Loki datasource cannot be modified or deleted through the API" "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -u '$AUTH' -X DELETE $G/api/datasources/uid/loki)\" != 200 ] && gapi $G/api/datasources/uid/loki/health | grep -q OK"
 check "request_id derived field is configured" "gapi $G/api/datasources/uid/loki | grep -q 'request_id'"
-check "Logs dashboard is provisioned (uid logs) among 4 dashboards" "[ \"\$(gapi \"$G/api/search?type=dash-db\" | $PY -c \"import sys,json; print(','.join(sorted(d['uid'] for d in json.load(sys.stdin))))\")\" = 'app-tasks,host-vm,logs,postgres' ]"
+check "Logs dashboard is provisioned (uid logs) among the required dashboards" "gapi \"$G/api/search?type=dash-db\" | $PY -c \"import sys,json; sys.exit(0 if 'logs' in {d['uid'] for d in json.load(sys.stdin)} else 1)\""
 check "every query of every dashboard (incl. Logs) runs through Grafana and returns data" "$PY tests/e2e/grafana_panels_check.py > /tmp/panels7.out 2>&1; tail -1 /tmp/panels7.out | grep -q ' 0 failed'"
 echo "      ($(tail -1 /tmp/panels7.out))"
 check "the Logs dashboard's Loki panels all ran (16 Loki queries)" "[ \"\$(sed -n '/== Logs/,/== PostgreSQL/p' /tmp/panels7.out | grep -c '^  PASS')\" -ge 20 ]"

@@ -1,0 +1,83 @@
+# Alert rules (Night Watch). Evaluated by Prometheus, routed by Alertmanager.
+# Unit-tested in tests/prometheus/alerts_test.yml. Thresholds assume a small local deployment.
+groups:
+  - name: application-tier-down
+    rules:
+      - alert: FrontendDown
+        expr: probe_success{job="frontend-blackbox"} == 0
+        for: 1m
+        labels: {severity: critical, tier: frontend}
+        annotations:
+          summary: "Frontend is unreachable ({{ $labels.instance }})"
+          description: "The Blackbox HTTP probe of {{ $labels.instance }} has failed for more than 1 minute."
+
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 1m
+        labels: {severity: critical, tier: backend}
+        annotations:
+          summary: "Backend API is down"
+          description: "Prometheus cannot scrape the backend /metrics endpoint ({{ $labels.instance }}) for more than 1 minute."
+
+      - alert: PostgresDown
+        expr: pg_up{job="postgres"} == 0 or up{job="postgres"} == 0
+        for: 1m
+        labels: {severity: critical, tier: database}
+        annotations:
+          summary: "PostgreSQL is down or its exporter cannot reach it"
+          description: "pg_up is 0 or the postgres exporter target is down for more than 1 minute."
+
+  - name: backend-api
+    rules:
+      - alert: BackendHighErrorRate
+        # The traffic guard stops a single failed request on an idle API from alerting.
+        expr: app:http_errors:ratio_rate5m > 0.05 and app:http_requests:rate5m > 0.02
+        for: 5m
+        labels: {severity: warning, tier: backend}
+        annotations:
+          summary: "Backend 5xx error rate is {{ $value | humanizePercentage }}"
+          description: "More than 5% of API requests returned 5xx over the last 5 minutes (sustained for 5 minutes)."
+
+      - alert: BackendHighLatencyP95
+        expr: app:http_request_duration_seconds:p95_5m > 1
+        for: 5m
+        labels: {severity: warning, tier: backend}
+        annotations:
+          summary: "Backend p95 latency is {{ $value | humanizeDuration }}"
+          description: "The 95th percentile request latency has been above 1 second for 5 minutes."
+
+  - name: database
+    rules:
+      - alert: PostgresHighConnections
+        expr: postgres:connections:ratio > 0.8
+        for: 5m
+        labels: {severity: warning, tier: database}
+        annotations:
+          summary: "PostgreSQL is using {{ $value | humanizePercentage }} of max_connections"
+          description: "Connection usage has been above 80% of max_connections for 5 minutes."
+
+  - name: server-resources
+    rules:
+      - alert: HostHighCpu
+        expr: instance:node_cpu_utilisation:ratio > 0.85
+        for: 10m
+        labels: {severity: warning, tier: server}
+        annotations:
+          summary: "CPU usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+          description: "CPU utilisation has been above 85% for 10 minutes."
+
+      - alert: HostHighMemory
+        expr: instance:node_memory_utilisation:ratio > 0.90
+        for: 5m
+        labels: {severity: warning, tier: server}
+        annotations:
+          summary: "Memory usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+          description: "Memory utilisation has been above 90% for 5 minutes."
+
+      - alert: HostDiskAlmostFull
+        expr: instance:node_filesystem_utilisation:ratio > 0.85
+        for: 10m
+        labels: {severity: warning, tier: server}
+        annotations:
+          summary: "Disk {{ $labels.device }} is {{ $value | humanizePercentage }} full on {{ $labels.instance }}"
+          description: "Filesystem usage has been above 85% for 10 minutes."

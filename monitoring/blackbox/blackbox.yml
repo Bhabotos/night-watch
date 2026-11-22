@@ -1,0 +1,10 @@
+# Blackbox Exporter modules (Night Watch). The frontend (nginx) is probed over HTTP from inside Docker.
+modules:
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: []   # any 2xx
+      follow_redirects: true
+      preferred_ip_protocol: ip4

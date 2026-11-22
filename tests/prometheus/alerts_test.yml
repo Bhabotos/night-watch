@@ -1,0 +1,132 @@
+# Unit tests for monitoring/prometheus/rules/alerts.yml.
+# Run: promtool test rules tests/prometheus/alerts_test.yml
+# Inputs are the recorded series (recording.yml is not loaded here, so there is no duplication).
+rule_files:
+  - ../../monitoring/prometheus/rules/alerts.yml
+
+evaluation_interval: 15s
+
+tests:
+  - name: frontend probe failing fires FrontendDown after 1m
+    interval: 15s
+    input_series:
+      - series: 'probe_success{job="frontend-blackbox", instance="http://nginx:8080/"}'
+        values: '1 1 0x20'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: FrontendDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: FrontendDown
+        exp_alerts:
+          - exp_labels: {severity: critical, tier: frontend, job: frontend-blackbox, instance: "http://nginx:8080/"}
+            exp_annotations:
+              summary: "Frontend is unreachable (http://nginx:8080/)"
+              description: "The Blackbox HTTP probe of http://nginx:8080/ has failed for more than 1 minute."
+
+  - name: backend scrape down fires BackendDown
+    interval: 15s
+    input_series:
+      - series: 'up{job="backend", instance="backend:8000"}'
+        values: '1 1 0x20'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: BackendDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: BackendDown
+        exp_alerts:
+          - exp_labels: {severity: critical, tier: backend, job: backend, instance: "backend:8000"}
+            exp_annotations:
+              summary: "Backend API is down"
+              description: "Prometheus cannot scrape the backend /metrics endpoint (backend:8000) for more than 1 minute."
+
+  - name: postgres exporter reports pg_up 0
+    interval: 15s
+    input_series:
+      - series: 'pg_up{job="postgres", instance="postgres-exporter:9187"}'
+        values: '1 0x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PostgresDown
+        exp_alerts:
+          - exp_labels: {severity: critical, tier: database, job: postgres, instance: "postgres-exporter:9187"}
+            exp_annotations:
+              summary: "PostgreSQL is down or its exporter cannot reach it"
+              description: "pg_up is 0 or the postgres exporter target is down for more than 1 minute."
+
+  - name: sustained 5xx ratio above 5 percent fires BackendHighErrorRate
+    interval: 15s
+    input_series:
+      - series: 'app:http_errors:ratio_rate5m'
+        values: '0.2x40'
+      - series: 'app:http_requests:rate5m'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: BackendHighErrorRate
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: BackendHighErrorRate
+        exp_alerts:
+          - exp_labels: {severity: warning, tier: backend}
+            exp_annotations:
+              summary: "Backend 5xx error rate is 20%"
+              description: "More than 5% of API requests returned 5xx over the last 5 minutes (sustained for 5 minutes)."
+
+  - name: high error ratio on an idle API does not fire
+    interval: 15s
+    input_series:
+      - series: 'app:http_errors:ratio_rate5m'
+        values: '1x60'
+      - series: 'app:http_requests:rate5m'
+        values: '0.001x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: BackendHighErrorRate
+        exp_alerts: []
+
+  - name: server CPU above 85 percent for 10m fires HostHighCpu
+    interval: 15s
+    input_series:
+      - series: 'instance:node_cpu_utilisation:ratio{instance="node-exporter:9100"}'
+        values: '0.95x80'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HostHighCpu
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: HostHighCpu
+        exp_alerts:
+          - exp_labels: {severity: warning, tier: server, instance: "node-exporter:9100"}
+            exp_annotations:
+              summary: "CPU usage is 95% on node-exporter:9100"
+              description: "CPU utilisation has been above 85% for 10 minutes."
+
+  - name: server memory above 90 percent for 5m fires HostHighMemory
+    interval: 15s
+    input_series:
+      - series: 'instance:node_memory_utilisation:ratio{instance="node-exporter:9100"}'
+        values: '0.95x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HostHighMemory
+        exp_alerts:
+          - exp_labels: {severity: warning, tier: server, instance: "node-exporter:9100"}
+            exp_annotations:
+              summary: "Memory usage is 95% on node-exporter:9100"
+              description: "Memory utilisation has been above 90% for 5 minutes."
+
+  - name: disk above 85 percent for 10m fires HostDiskAlmostFull
+    interval: 15s
+    input_series:
+      - series: 'instance:node_filesystem_utilisation:ratio{instance="node-exporter:9100", device="overlay", fstype="overlay"}'
+        values: '0.9x80'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: HostDiskAlmostFull
+        exp_alerts:
+          - exp_labels: {severity: warning, tier: server, instance: "node-exporter:9100", device: overlay, fstype: overlay}
+            exp_annotations:
+              summary: "Disk overlay is 90% full on node-exporter:9100"
+              description: "Filesystem usage has been above 85% for 10 minutes."

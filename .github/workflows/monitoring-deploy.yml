@@ -1,0 +1,80 @@
+name: Deploy monitoring stack
+
+# Runs ONLY on a push to main (never on pull requests). The deploy job needs the validation job, so a failed
+# validation can never reach the server, and it targets the `production` GitHub Environment, where required
+# reviewers (manual approval) and the deployment secrets are configured. Nothing is deployed from a PR.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One deployment at a time; a running deployment is never cancelled half-way.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate
+    uses: ./.github/workflows/monitoring-validate.yml
+
+  deploy:
+    name: Deploy to Hetzner VPS
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: production
+    env:
+      # Environment secrets (Settings > Environments > production). Never printed; GitHub masks them.
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH (key and VERIFIED host key)
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          umask 077
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          # The host key comes from a secret you verified against the VPS fingerprint; ssh-keyscan is never trusted here.
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host vps
+            HostName ${DEPLOY_HOST}
+            User ${DEPLOY_USER}
+            Port ${DEPLOY_PORT:-22}
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+          EOF
+          chmod 600 ~/.ssh/config ~/.ssh/deploy_key ~/.ssh/known_hosts
+
+      - name: Check SSH access as the deployment user
+        run: ssh vps 'echo "connected as $(id -un) on $(hostname)"; test "$(id -u)" != 0'
+
+      - name: Upload the repository to the staging directory (never to the live directory)
+        run: |
+          set -eu
+          # shellcheck disable=SC2029
+          ssh vps "mkdir -p '${DEPLOY_PATH}/incoming'"
+          rsync -az --delete \
+            --exclude '.git' --exclude '.github' --exclude '.env' --exclude '.env.*' --exclude 'node_modules' \
+            --exclude '__pycache__' --exclude 'docs/evidence' \
+            ./ "vps:${DEPLOY_PATH}/incoming/"
+
+      - name: Deploy, health-check and roll back automatically on failure
+        run: |
+          # shellcheck disable=SC2029
+          ssh vps "bash -s -- '${GITHUB_SHA}' '${DEPLOY_PATH}'" < scripts/deploy_remote.sh
