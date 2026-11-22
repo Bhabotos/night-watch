@@ -1,0 +1,8 @@
+PromQL query 3 of 3: Database tier
+Query   : postgres:connections:ratio
+Meaning : PostgreSQL connections in use divided by max_connections (from postgres-exporter metrics).
+Shows   : database connection headroom; 0.04 means 4% of the allowed connections. It drives the connection-usage gauge and the PostgresHighConnections alert (threshold 80%).
+Result  : 0.04   (exactly the value visible in the screenshot, Prometheus UI table view)
+Re-read : 0.04   (API re-read a few minutes later; live metrics move slightly between readings)
+Captured: 2026-11-22 06:06 UTC (12:06 Bangladesh time, UTC+6); screenshot 18-promql-3-database-connection-ratio.png
+Source  : documented in docs/NIGHT_WATCH_EVIDENCE.md, defined in monitoring/prometheus/rules/recording.yml

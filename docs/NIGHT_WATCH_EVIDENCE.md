@@ -3,6 +3,8 @@
 Module 6 evidence, recorded from real command output. Nothing here is claimed without a test run.
 Date of capture: 2026-11-21. Stack: Compose project `monitoring-3tier`, branch `main` (changes uncommitted).
 
+> **Reading note:** this log is chronological and is not rewritten. Headings such as "Not yet done", "Screenshots still required" and "Not corrected yet" describe the state at the time of that phase; later phases (see Phases 6 to 10) supersede them. The current status is kept in `NIGHT_WATCH_TASK_TRACKER.md`.
+
 ## Phase 2 changes
 
 | File | Change |
@@ -336,7 +338,7 @@ Time convention: all log times are UTC. The Task 5 demo above ran at 18:14-18:17
 
 ## Local validation (real output)
 ```
-sh scripts/validate_monitoring.sh -> 19 checks PASS, 0 FAIL: "RESULT: all validation checks passed"
+sh scripts/validate_monitoring.sh -> 18 checks PASS, 0 FAIL: "RESULT: all validation checks passed"
   (compose config, promtool check config/rules, promtool test rules x2, amtool check-config, blackbox --config.check,
    6 dashboard JSON files, dashboard lint, 12 dashboard regression tests, 16 workflow tests, .env untracked, no token/private key)
 python -I -m unittest discover -s tests/e2e -p "test_*.py" -> Ran 12 tests OK
@@ -428,7 +430,7 @@ After the run: nginx healthy (started 04:32:55Z, `RestartCount=0`), `http://127.
 | `11-grafana-frontend-availability-recovered.png` | 04:33:37Z | Frontend availability back to UP |
 
 ## Local CI validation, re-run after the demo (2026-11-22)
-`sh scripts/validate_monitoring.sh`: 19 checks, RESULT all passed. `sh tests/ci/negative_test.sh`: control passes; faults 1-5 each make validation exit 1 (invalid PromQL, invalid scrape_interval,
+`sh scripts/validate_monitoring.sh`: 18 checks, RESULT all passed. `sh tests/ci/negative_test.sh`: control passes; faults 1-5 each make validation exit 1 (invalid PromQL, invalid scrape_interval,
 unknown Alertmanager receiver, truncated dashboard JSON, renamed dashboard); validation passed again afterwards. Final secret scan of tracked and untracked files: no matches; `.env` is gitignored.
 Git: one commit (`86013df`, 2026-11-15), equal to `origin/main`; no commit, push, stash or tag was made during Night Watch work. This is local validation only: **no GitHub Actions run exists**, and
 `Bhabotos/night-watch` does not exist yet.
@@ -439,18 +441,18 @@ Git: one commit (`86013df`, 2026-11-15), equal to `origin/main`; no commit, push
 # Phase 8: real GitHub Actions evidence (2026-11-22, 04:38-04:43 UTC = 10:38-10:43 Bangladesh time, UTC+6)
 
 Repository: https://github.com/Bhabotos/night-watch (public, created 2026-11-22). Remote `night-watch` was added; `origin` (`monitoring-3tier-project`) is unchanged.
-`main` on the new repository holds the pre-existing commit `86013df` (pushed so that a pull request has a base; it contains no workflows, so nothing ran). Nothing was merged and nothing was deployed.
+`main` on the new repository holds the pre-existing commit `86013df` (pushed so that a pull request has a base; it contains no workflows, so nothing ran). At the time of this phase nothing had been merged or deployed; see Phase 9 below for the later merge of PR 1.
 
 | Item | Value |
 |---|---|
 | Submission branch / commit | `night-watch-submission` @ `f9eba60` (42 files; `.env` untracked; staged secret scan clean) |
-| Pull request 1 (green) | https://github.com/Bhabotos/night-watch/pull/1 (`night-watch-submission` -> `main`, open, not merged) |
-| Pull request 2 (negative test) | https://github.com/Bhabotos/night-watch/pull/2 (`ci-demo-invalid` -> `night-watch-submission`, open, not for merging) |
+| Pull request 1 (green) | https://github.com/Bhabotos/night-watch/pull/1 (`night-watch-submission` -> `main`; **merged** as `7145b54` at 2026-11-22 04:46:55 UTC, see Phase 9) |
+| Pull request 2 (negative test) | https://github.com/Bhabotos/night-watch/pull/2 (`ci-demo-invalid` -> `night-watch-submission`; **open**, kept as negative-test evidence, not for merging) |
 
 ## Actions runs (workflow *Monitoring validation*, trigger `pull_request`; all verified with `gh run view`)
 | Run | Commit | Result | What it proves |
 |---|---|---|---|
-| https://github.com/Bhabotos/night-watch/actions/runs/44986089290 | `f9eba60` | **success** (22 s job), all 19 checks PASS in the log | Normal validation on GitHub's runner |
+| https://github.com/Bhabotos/night-watch/actions/runs/44986089290 | `f9eba60` | **success** (22 s job), all 18 checks PASS in the log | Normal validation on GitHub's runner |
 | https://github.com/Bhabotos/night-watch/actions/runs/44986168079 | `05eb8f0` | **failure** (expected) | Validation catches a bad alert rule |
 | https://github.com/Bhabotos/night-watch/actions/runs/44986230651 | `b4c97c8` | **success** | Validation passes again after the fix |
 
@@ -466,4 +468,49 @@ Repository: https://github.com/Bhabotos/night-watch (public, created 2026-11-22)
 `12-github-actions-green-run-pr1.png`, `13-github-actions-red-run-pr2-expected-failure.png`, `14-github-actions-green-after-fix-pr2.png` are real headless-Chrome captures of the public run pages. The page header shows "Sign in to view logs" (the logs are fetched with `gh`).
 
 ## Still open
-Merging PR 1 into `main` (needs your approval; it would start the deploy workflow, which stops at the SSH step because no `production` secrets exist), Hetzner details and secrets, and an optional datasource "Save & test" screenshot.
+At the time of this phase: merging PR 1 (done later, see Phase 9), Hetzner details and secrets, and an optional datasource "Save & test" screenshot.
+
+
+---
+
+# Phase 9: production environment, merge of PR 1 and the deployment gate (2026-11-22, 04:44-04:47 UTC = 10:44-10:47 Bangladesh time, UTC+6)
+
+| Item | Status |
+|---|---|
+| GitHub Environment `production` | Created: required reviewer `Bhabotos`, deployments restricted to branch `main`, **no secrets** |
+| PR 1 (`night-watch-submission` -> `main`) | **Merged** as `7145b54` (merge commit) at 2026-11-22 04:46:55 UTC; its validation check was green at `2ae0917` (run 44986384461) |
+| PR 2 (`ci-demo-invalid` -> `night-watch-submission`) | **Open, not merged, not closed** (purpose: negative-test evidence; net diff against its base is 0 files because the fix commit reverts the fault; its runs 44986168079 red and 44986230651 green remain linked) |
+| Deploy workflow run [44986551856](https://github.com/Bhabotos/night-watch/actions/runs/44986551856) | Started by the push of `7145b54` to `main`. Job *Validate* **success**; job *Deploy to Hetzner VPS* **waiting** for approval in `production`. It has **not been approved**, rejected or cancelled |
+| Hetzner deployment | **Not performed.** No VPS details, SSH key, host key or `production` secrets exist; no server was contacted |
+
+Pending-deployment check (`gh api .../pending_deployments`): environment `production`, reviewers `Bhabotos`. If the waiting job were approved it would fail at the SSH step because the secrets are empty, so it is being left waiting until the owner decides to reject or cancel it.
+Any further commit to `main` starts another deploy run that also waits for approval; documentation corrections should therefore go through a pull request.
+
+
+---
+
+# Phase 10: additional evidence and documentation corrections (2026-11-22, 06:04-06:07 UTC = 12:04-12:07 Bangladesh time, UTC+6)
+
+Captured from the live local stack on branch `docs/final-assignment-evidence` (based on `night-watch/main` at `7145b54`). All images are real headless-Chrome captures of the live pages; nothing was edited. The 14 original screenshots, the text originals of `06` and `07`, the alert demo log and the red-run log excerpt are unchanged.
+
+| File | Captured (UTC) | Shows | sha256 (first 12) |
+|---|---|---|---|
+| `15-prometheus-targets-all-9-up.png` | 06:04:50 | Full-height Prometheus Targets page: all 9 scrape pools, **postgres included**, each 1/1 UP (alertmanager, alloy, backend, blackbox, frontend-blackbox, loki, node, postgres, prometheus). `04` is kept as the original, which cuts off the last two pools. | `50df4f3b0153` |
+| `16-promql-1-backend-request-rate.png` + `.txt` | 06:04:51 | Query `app:http_requests:rate5m` (Backend API tier): **0.23159276167350332** req/s | `6991dc5d7bd9` |
+| `17-promql-2-server-cpu-utilisation.png` + `.txt` | 06:04:51 | Query `instance:node_cpu_utilisation:ratio` (Server tier): **0.03319496250653546** (about 3.3% CPU) | `cb2e672ad940` |
+| `18-promql-3-database-connection-ratio.png` + `.txt` | 06:04:52 | Query `postgres:connections:ratio` (Database tier): **0.04** (4% of max_connections) | `81a875e3340f` |
+| `19-grafana-prometheus-datasource-test-success.png` | 06:06:37 | The existing provisioned `Prometheus` datasource (`http://prometheus:9090`, read-only) after pressing **Test**: "Successfully queried the Prometheus API." | `4318eaf0d676` |
+| `20-github-actions-deploy-run-waiting-approval.png` | 06:04:58 | Run 44986551856 (public page, nothing clicked): triggered via push to `main` (`7145b54`); *Validate* passed; *Deploy to Hetzner VPS* waiting for review in `production` | `24871e610695` |
+
+- **PromQL queries:** the project documents 8 queries (see "PromQL queries and actual results" above) and does not designate exactly three. These three are among them, one per required tier (API, server, database), and are recording rules in `monitoring/prometheus/rules/recording.yml`. No new query was written. Each `.txt` file states what the query demonstrates and the value visible in its screenshot; the value re-read from the API a few minutes later differs slightly because the metrics are live. A small burst of normal requests to the frontend was sent before the captures so the request-rate query reflects real activity.
+- **Datasource Test:** the datasource is provisioned, so Delete and Add are disabled and only **Test** is available; pressing it only queries Prometheus. No datasource was created or modified. The three UI-created datasources `loki-1`, `loki-2` and `prometheus-1` already existed and were not touched.
+- **Deploy run:** the run page shows the push to `main`, a passed validation job and a deployment job waiting for the `production` environment's required reviewer (`Bhabotos`). It has not been approved, rejected or cancelled.
+
+## Correction: validation count is 18
+`scripts/validate_monitoring.sh` runs **18 checks**: 10 single checks, 2 promtool rule-test files and 6 dashboard JSON files. A fresh run prints 18 `PASS` lines plus one `RESULT` line, and the GitHub runner log of run 44986089290 shows the same 18. Earlier entries in this log, the tracker and the description of PR 1 said "19" because the `RESULT` line was counted; the log and the tracker were corrected in place, and the PR 1 description is left as written.
+
+## Unchanged facts at the time of this phase
+- PR 1 (`night-watch-submission` -> `main`) is **merged** as `7145b54` (2026-11-22 04:46:55 UTC); PR 2 (`ci-demo-invalid` -> `night-watch-submission`) is **open**.
+- The `production` environment requires reviewer `Bhabotos`, is limited to branch `main` and has no secrets.
+- Deploy run 44986551856 is **waiting for approval**. No deployment to any server has been performed.
+- The alert notification channel is the local webhook receiver `alert-sink`: each firing and resolved notification is written to its log. It is log-only (no email, Slack or Telegram).
