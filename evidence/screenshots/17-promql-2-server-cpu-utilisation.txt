@@ -1,0 +1,8 @@
+PromQL query 2 of 3: Server tier
+Query   : instance:node_cpu_utilisation:ratio
+Meaning : fraction of CPU in use on the host (Docker VM) as reported by Node Exporter (recording rule over node_cpu_seconds_total).
+Shows   : server CPU utilisation; 0.033 means about 3.3%. It drives the CPU gauge and the HostHighCpu alert (threshold 85%).
+Result  : 0.03319496250653546   (exactly the value visible in the screenshot, Prometheus UI table view)
+Re-read : 0.031488830873528856   (API re-read a few minutes later; live metrics move slightly between readings)
+Captured: 2026-11-22 06:06 UTC (12:06 Bangladesh time, UTC+6); screenshot 17-promql-2-server-cpu-utilisation.png
+Source  : documented in docs/NIGHT_WATCH_EVIDENCE.md, defined in monitoring/prometheus/rules/recording.yml

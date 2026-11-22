@@ -114,8 +114,12 @@ beyond `127.0.0.1`. More detail: [docs/architecture.md](docs/architecture.md), [
 | `12-github-actions-green-run-pr1.png` | GitHub Actions: Monitoring validation green on PR #1 |
 | `13-github-actions-red-run-pr2-expected-failure.png` | Deliberate failure (invalid PromQL in `BackendDown`), PR #2 |
 | `14-github-actions-green-after-fix-pr2.png` | Green again after the fix |
+| `15-prometheus-targets-all-9-up.png` | Full-height Targets page: all 9 targets UP, postgres included (`04` is kept as the original) |
+| `16-promql-1-backend-request-rate.png`, `17-promql-2-server-cpu-utilisation.png`, `18-promql-3-database-connection-ratio.png` | The three PromQL queries with their results (backend request rate, server CPU, database connection ratio); each has a `.txt` description |
+| `19-grafana-prometheus-datasource-test-success.png` | Provisioned Prometheus datasource: Test shows "Successfully queried the Prometheus API." |
+| `20-github-actions-deploy-run-waiting-approval.png` | Deploy run 44986551856: push to `main`, validation passed, deploy job waiting for `production` approval (not approved) |
 
-CI: repository https://github.com/Bhabotos/night-watch, [PR #1](https://github.com/Bhabotos/night-watch/pull/1) (green run 44986089290), [PR #2](https://github.com/Bhabotos/night-watch/pull/2) (red run 44986168079, green again 44986230651); details in [docs/NIGHT_WATCH_EVIDENCE.md](docs/NIGHT_WATCH_EVIDENCE.md). Deployment to the VPS is prepared but not executed.
+CI: repository https://github.com/Bhabotos/night-watch, [PR #1](https://github.com/Bhabotos/night-watch/pull/1) (green run 44986089290; **merged** as `7145b54`), [PR #2](https://github.com/Bhabotos/night-watch/pull/2) (negative test, still open: red run 44986168079, green again 44986230651). The merge started the deploy workflow ([run 44986551856](https://github.com/Bhabotos/night-watch/actions/runs/44986551856)): validation passed and the *Deploy to Hetzner VPS* job is **waiting for approval** in the `production` environment (required reviewer, branch `main`, no secrets); no deployment has been performed; details in [docs/NIGHT_WATCH_EVIDENCE.md](docs/NIGHT_WATCH_EVIDENCE.md). Deployment to the VPS is prepared but not executed.
 
 The matching raw timeline is `evidence/alert_demo_2026-11-22T0430Z.txt` (firing, webhook delivery, recovery, resolved). Times are UTC; Bangladesh time is UTC+6 (04:31 UTC = 10:31).
 

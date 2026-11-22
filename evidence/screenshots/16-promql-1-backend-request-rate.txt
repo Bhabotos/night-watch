@@ -1,0 +1,8 @@
+PromQL query 1 of 3: Backend API tier
+Query   : app:http_requests:rate5m
+Meaning : requests per second handled by the FastAPI backend, averaged over 5 minutes (a project recording rule over http_requests_total).
+Shows   : the API tier is live and receiving traffic; it feeds the "Request rate" panel of "Three-Tier App - Production".
+Result  : 0.23159276167350332 req/s   (exactly the value visible in the screenshot, Prometheus UI table view)
+Re-read : 0.27019345149325746 req/s   (API re-read a few minutes later; live metrics move slightly between readings)
+Captured: 2026-11-22 06:06 UTC (12:06 Bangladesh time, UTC+6); screenshot 16-promql-1-backend-request-rate.png
+Source  : documented in docs/NIGHT_WATCH_EVIDENCE.md ("PromQL queries and actual results"), defined in monitoring/prometheus/rules/recording.yml
