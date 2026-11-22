@@ -124,6 +124,156 @@ CI: repository https://github.com/Bhabotos/night-watch, [PR #1](https://github.c
 
 The matching raw timeline is `evidence/alert_demo_2026-11-22T0430Z.txt` (firing, webhook delivery, recovery, resolved). Times are UTC; Bangladesh time is UTC+6 (04:31 UTC = 10:31).
 
+## Visual Evidence Gallery
+
+All 20 screenshots from `evidence/screenshots/` are shown below, grouped by assignment task. The numbers match the filenames and the Evidence table above. Grafana axis times are Bangladesh local time (UTC+6); all other times are UTC.
+
+Jump to: [Task 1](#task-1-prometheus-setup) | [Task 2](#task-2-grafana-setup) | [Task 3](#task-3-community-dashboard) | [Task 4](#task-4-three-tier-app-dashboard) | [Task 5](#task-5-alerting) | [Task 6](#task-6-github-cicd)
+
+### Task 1: Prometheus setup
+
+*15 marks. Prometheus scrapes the host, the backend API, PostgreSQL and the frontend probe; every target is UP, and three custom PromQL queries return valid results.*
+
+#### 15. All nine Prometheus targets UP
+
+<img src="evidence/screenshots/15-prometheus-targets-all-9-up.png" alt="All nine Prometheus targets UP" width="800">
+
+Full-height Targets page: all nine scrape pools (alertmanager, alloy, backend, blackbox, frontend-blackbox, loki, node, postgres, prometheus) are 1/1 UP, postgres included.
+
+#### 04. Prometheus Targets page (first capture)
+
+<img src="evidence/screenshots/04-prometheus-targets.png" alt="Prometheus Targets page (first capture)" width="800">
+
+The first Targets capture; the last two pools fall below the fold, which is why screenshot 15 was added.
+
+#### 16. PromQL query 1: Backend API
+
+<img src="evidence/screenshots/16-promql-1-backend-request-rate.png" alt="PromQL query 1: Backend API" width="800">
+
+`app:http_requests:rate5m` returns 0.2316 requests per second for the FastAPI backend.
+
+#### 17. PromQL query 2: Server
+
+<img src="evidence/screenshots/17-promql-2-server-cpu-utilisation.png" alt="PromQL query 2: Server" width="800">
+
+`instance:node_cpu_utilisation:ratio` returns 0.0332, about 3.3% CPU, for the host.
+
+#### 18. PromQL query 3: Database
+
+<img src="evidence/screenshots/18-promql-3-database-connection-ratio.png" alt="PromQL query 3: Database" width="800">
+
+`postgres:connections:ratio` returns 0.04, 4% of the allowed PostgreSQL connections.
+
+#### 06. Running stack
+
+<img src="evidence/screenshots/06-docker-compose-ps.png" alt="Running stack" width="800">
+
+`docker compose ps`: all 14 containers healthy (rendered from captured command output, not a live terminal window).
+
+### Task 2: Grafana setup
+
+*10 marks. Grafana runs with Prometheus provisioned as its data source.*
+
+#### 19. Prometheus data source: connection test
+
+<img src="evidence/screenshots/19-grafana-prometheus-datasource-test-success.png" alt="Prometheus data source: connection test" width="800">
+
+The provisioned data source `http://prometheus:9090`; Test returns "Successfully queried the Prometheus API."
+
+#### 01. Provisioned dashboards
+
+<img src="evidence/screenshots/01-grafana-dashboards-list.png" alt="Provisioned dashboards" width="800">
+
+The six dashboards in the Monitoring folder, including Node Exporter Full and Three-Tier App – Production.
+
+### Task 3: Community dashboard
+
+*10 marks. Node Exporter Full (Grafana.com ID 1860) is imported and shows host data.*
+
+#### 02. Node Exporter Full (ID 1860)
+
+<img src="evidence/screenshots/02-node-exporter-full-1860.png" alt="Node Exporter Full (ID 1860)" width="800">
+
+Dashboard title visible, job `node`, last 30 minutes: CPU, memory, network and disk panels populated. Axis times are Bangladesh local time (UTC+6).
+
+### Task 4: Three-Tier App dashboard
+
+*20 marks. One dashboard, organised in rows by tier, with four visualization types.*
+
+#### 03. Three-Tier App – Production
+
+<img src="evidence/screenshots/03-three-tier-app-production.png" alt="Three-Tier App – Production" width="800">
+
+Title visible; Frontend, Backend API, Database and Server rows with 19 panels (stat, gauge, time series, table), last 30 minutes. Axis times are Bangladesh local time (UTC+6).
+
+### Task 5: Alerting
+
+*20 marks. Nine alert rules; one tier was deliberately stopped to show the alert firing and resolving. The notification channel is a log-only local webhook receiver (`alert-sink`), not email, Slack or Telegram.*
+
+#### 05. Alert rules loaded
+
+<img src="evidence/screenshots/05-prometheus-alerts-inactive.png" alt="Alert rules loaded" width="800">
+
+All nine rules in four groups (tier down, backend API, database, server resources), all inactive while the system is healthy.
+
+#### 08. Controlled failure: frontend DOWN
+
+<img src="evidence/screenshots/08-grafana-frontend-availability-DOWN.png" alt="Controlled failure: frontend DOWN" width="800">
+
+With the frontend stopped, the Frontend availability panel shows DOWN and HTTP status 0 (captured 04:31 UTC).
+
+#### 09. Alert firing
+
+<img src="evidence/screenshots/09-prometheus-FrontendDown-FIRING.png" alt="Alert firing" width="800">
+
+Prometheus `/alerts`: `FrontendDown` is FIRING (captured 04:32 UTC).
+
+#### 07. Notification delivered
+
+<img src="evidence/screenshots/07-alert-sink-firing-resolved.png" alt="Notification delivered" width="800">
+
+Grafana Explore (Loki) view of the alert-sink log: `FrontendDown` firing at 10:32:50 local (04:32:50 UTC) and resolved at 10:33:50 local (04:33:50 UTC) on 2026-11-22.
+
+#### 11. Frontend recovered
+
+<img src="evidence/screenshots/11-grafana-frontend-availability-recovered.png" alt="Frontend recovered" width="800">
+
+After the frontend is restarted, the availability panel is back to UP (captured 04:33 UTC).
+
+#### 10. Alert resolved
+
+<img src="evidence/screenshots/10-prometheus-FrontendDown-after-recovery.png" alt="Alert resolved" width="800">
+
+Prometheus `/alerts` after recovery: nothing is firing (captured 04:33 UTC).
+
+### Task 6: GitHub CI/CD
+
+*15 marks. Validation runs on every pull request; the deploy workflow runs on push to `main` and waits for approval in the `production` environment. No deployment has been performed.*
+
+#### 12. Validation passes (green run)
+
+<img src="evidence/screenshots/12-github-actions-green-run-pr1.png" alt="Validation passes (green run)" width="800">
+
+Monitoring validation succeeds on PR #1 (run 44986089290).
+
+#### 13. Validation fails on invalid configuration (red run)
+
+<img src="evidence/screenshots/13-github-actions-red-run-pr2-expected-failure.png" alt="Validation fails on invalid configuration (red run)" width="800">
+
+An intentionally invalid PromQL expression in `BackendDown` makes validation fail on PR #2 (run 44986168079).
+
+#### 14. Validation passes after the fix
+
+<img src="evidence/screenshots/14-github-actions-green-after-fix-pr2.png" alt="Validation passes after the fix" width="800">
+
+The invalid expression is corrected and validation is green again (run 44986230651).
+
+#### 20. Deploy workflow gated by approval
+
+<img src="evidence/screenshots/20-github-actions-deploy-run-waiting-approval.png" alt="Deploy workflow gated by approval" width="800">
+
+Run 44986551856: triggered by the push to `main`, validation passed, the deployment job is waiting for `production` approval (not approved).
+
 ## Community dashboard: Node Exporter Full (Grafana.com ID 1860)
 
 It was chosen because the server-health requirement (CPU, memory, disk, network, load) is exactly what Node Exporter exposes, and this dashboard is the
