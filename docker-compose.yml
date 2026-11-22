@@ -513,3 +513,107 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
+  # ---- Night Watch: frontend availability and alerting -------------------------------------------
+  # Blackbox Exporter probes nginx over HTTP. nginx is on `edge`, so Blackbox joins `edge` (reach nginx
+  # without touching the running nginx container) and `metrics` (Prometheus scrapes /probe). Not published.
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.28.0
+    restart: unless-stopped
+    networks: [metrics, edge]
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+      - --web.listen-address=0.0.0.0:9115
+    volumes:
+      - ./monitoring/blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9115/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Receives alerts from Prometheus over `monitoring` and sends Telegram messages over `edge` (the only
+  # route to the internet). Not published. The entrypoint writes TELEGRAM_BOT_TOKEN to a tmpfs file and
+  # sets chat_id from TELEGRAM_CHAT_ID; with either unset the config keeps its placeholders and
+  # notifications fail harmlessly (alerts stay visible in Prometheus and Alertmanager).
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    networks: [monitoring, edge]
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        cp /etc/alertmanager/alertmanager.yml /tmp/alertmanager.yml
+        if [ -n "$${TELEGRAM_BOT_TOKEN}" ] && printf '%s' "$${TELEGRAM_CHAT_ID}" | grep -Eq '^-?[0-9]+$$'; then
+          printf '%s' "$${TELEGRAM_BOT_TOKEN}" > /tmp/telegram_bot_token
+          sed -i -E "s/^( *chat_id:).*/\1 $${TELEGRAM_CHAT_ID}/" /tmp/alertmanager.yml
+          echo "telegram: configured"
+        else
+          : > /tmp/telegram_bot_token
+          echo "telegram: NOT configured (TELEGRAM_BOT_TOKEN / numeric TELEGRAM_CHAT_ID unset); using placeholders"
+        fi
+        exec /bin/alertmanager --config.file=/tmp/alertmanager.yml --storage.path=/alertmanager --web.listen-address=0.0.0.0:9093
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /alertmanager:uid=65534,gid=65534
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Local Alertmanager webhook receiver: prints each notification (firing and resolved) as a JSON log line.
+  # No credentials, no published port, no internet route (`monitoring` is internal). Reuses the Python image
+  # the backend is built from; the script is mounted read-only.
+  alert-sink:
+    image: python:3.12.16-slim-bookworm
+    restart: unless-stopped
+    user: "65534:65534"
+    networks: [monitoring]
+    command: ["python", "-u", "/app/sink.py"]
+    volumes:
+      - ./monitoring/alert-sink/sink.py:/app/sink.py:ro
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

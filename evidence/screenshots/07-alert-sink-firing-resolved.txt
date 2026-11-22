@@ -1,0 +1,5 @@
+﻿$ docker logs monitoring-3tier-alert-sink-1    (captured 2026-11-22 04:27:27 UTC)
+{"event": "notification", "status": "firing", "alertname": "SinkSelfTest", "severity": "info", "tier": "test", "summary": "sink self-test", "startsAt": "2026-11-22T00:00:00Z", "endsAt": "0001-01-01T00:00:00Z"}
+{"event": "notification", "status": "firing", "alertname": "FrontendDown", "severity": "critical", "tier": "frontend", "summary": "Frontend is unreachable (http://nginx:8080/)", "startsAt": "2026-11-21T18:15:35.362Z", "endsAt": "0001-01-01T00:00:00Z"}
+{"event": "notification", "status": "resolved", "alertname": "FrontendDown", "severity": "critical", "tier": "frontend", "summary": "Frontend is unreachable (http://nginx:8080/)", "startsAt": "2026-11-21T18:15:35.362Z", "endsAt": "2026-11-21T18:16:35.362Z"}
+

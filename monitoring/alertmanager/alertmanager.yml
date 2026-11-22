@@ -1,0 +1,37 @@
+# Alertmanager configuration (Night Watch).
+# The Telegram bot token and chat id are NEVER stored here. The container entrypoint (see
+# docker-compose.yml) writes the token from TELEGRAM_BOT_TOKEN to a tmpfs file and replaces the
+# chat_id line below with TELEGRAM_CHAT_ID when both are set. The values in this file are placeholders
+# that keep the file valid for `amtool check-config` in CI.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: telegram
+  group_by: [alertname, tier]
+  group_wait: 30s
+  group_interval: 1m   # also how soon a "resolved" message follows recovery
+  repeat_interval: 4h
+  routes:
+    # Every alert is delivered to the local webhook receiver (no credentials needed).
+    - receiver: local-webhook
+      continue: true
+    # Telegram is optional. The top-level receiver only handles alerts that NO child route matches, so
+    # to also send to Telegram, set TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID in .env and uncomment:
+    # - receiver: telegram
+
+receivers:
+  - name: local-webhook
+    webhook_configs:
+      - url: http://alert-sink:8080/alerts
+        send_resolved: true
+
+  - name: telegram
+    telegram_configs:
+      - bot_token_file: /tmp/telegram_bot_token
+        chat_id: 123456789   # placeholder, replaced at start-up from TELEGRAM_CHAT_ID
+        send_resolved: true
+        message: |-
+          {{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }} [{{ .CommonLabels.severity }}] {{ .CommonLabels.alertname }}
+          {{ range .Alerts }}{{ .Annotations.summary }}
+          {{ end }}

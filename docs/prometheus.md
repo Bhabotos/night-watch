@@ -24,8 +24,12 @@ Interval 15 s, timeout 10 s, external label `environment=local`.
 | `loki` | `loki:3100` | monitoring (Phase 7) |
 | `alloy` | `alloy:12345` | monitoring (Phase 7) |
 
-Loki and Alloy are scraped since Phase 7. There is no Alertmanager: alerting is Grafana
-Alerting (Phase 8), so Prometheus holds recording rules only.
+Loki and Alloy are scraped since Phase 7. Night Watch (Module 6) added three more jobs: `frontend-blackbox`
+(HTTP probe of `http://nginx:8080/` through Blackbox Exporter), `blackbox` and `alertmanager`.
+
+Alerting is done by **Prometheus alert rules plus Alertmanager** (`monitoring/prometheus/rules/alerts.yml`, 9 rules,
+unit-tested in `tests/prometheus/alerts_test.yml`; `monitoring/alertmanager/alertmanager.yml`). This replaces the earlier plan
+to use Grafana Alerting (see `docs/decisions.md` #8 and #58). The 11 recording rules in `recording.yml` are unchanged.
 
 ## Storage and access
 

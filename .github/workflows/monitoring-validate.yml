@@ -1,0 +1,24 @@
+name: Monitoring validation
+
+# Runs on EVERY pull request, and is reused by the deploy workflow before anything is deployed.
+# No secrets are used here, and pull_request (not pull_request_target) means fork PRs cannot reach any.
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate monitoring configuration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # promtool, amtool and blackbox_exporter run from the same pinned images as docker-compose.yml.
+      - name: Validate Prometheus, alert rules, Alertmanager, Blackbox, dashboards and regression tests
+        run: sh scripts/validate_monitoring.sh

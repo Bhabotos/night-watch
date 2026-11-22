@@ -1,0 +1,15 @@
+[04:30:58Z] BASELINE  probe_success=1 FrontendDown=none sent=0 failed=0
+[04:30:58Z] STEP 1  stopping ONLY monitoring-3tier-nginx-1
+[04:31:14Z] EVIDENCE frontend availability failure: probe_success=0
+[04:32:21Z] EVIDENCE alert FIRING in Prometheus: FrontendDown=firing
+[04:32:22Z] EVIDENCE alert ACTIVE in Alertmanager: FrontendDown (count=1)
+[04:32:54Z] EVIDENCE webhook firing notification: sent=1 (was 0), failed=0 (was 0)
+    receiver got: FIRING FrontendDown severity=critical startsAt=2026-11-22T04:32:05.362Z endsAt=0001-01-01T00:00:00Z
+[04:32:55Z] STEP 2  recovery: starting monitoring-3tier-nginx-1
+[04:33:02Z] EVIDENCE nginx healthy
+[04:33:07Z] EVIDENCE frontend recovered: probe_success=1
+[04:33:23Z] EVIDENCE alert RESOLVED in Prometheus: FrontendDown=none
+[04:33:52Z] EVIDENCE webhook resolved notification: sent=2 (was 1), failed=0
+    receiver got: FIRING FrontendDown severity=critical startsAt=2026-11-22T04:32:05.362Z endsAt=0001-01-01T00:00:00Z
+    receiver got: RESOLVED FrontendDown severity=critical startsAt=2026-11-22T04:32:05.362Z endsAt=2026-11-22T04:33:05.362Z
+[04:33:54Z] FINAL    probe_success=1 FrontendDown=none alertmanager_active=0 sent=2 failed=0

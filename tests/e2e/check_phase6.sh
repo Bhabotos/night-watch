@@ -26,6 +26,9 @@ PY="python -I"
 nets() { docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$1" | tr ' ' '\n' | sort | tr -d '\n'; }
 wait_healthy() { for i in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' "$1" 2>/dev/null)" = healthy ] && return 0; sleep 3; done; return 1; }
 dash_count() { gapi "$G/api/search?type=dash-db" | $PY -c "import sys,json; print(len(json.load(sys.stdin)))"; }
+# The dashboards that must be provisioned (by uid and title). Others may exist; the exact count is not asserted.
+REQUIRED_DASH="app-tasks host-vm postgres logs rYdddlPWk three-tier-production"
+dash_present() { gapi "$G/api/search?type=dash-db" | $PY -X utf8 -c "import sys,json; have={d['uid']:d['title'] for d in json.load(sys.stdin)}; want=sys.argv[1:]; sys.exit(0 if all(u in have for u in want) and have['three-tier-production']=='Three-Tier App \u2013 Production' and have['rYdddlPWk']=='Node Exporter Full' else 1)" $REQUIRED_DASH; }
 ds_ok() { gapi "$G/api/datasources/uid/prometheus/health" | $PY -c "import sys,json; print(json.load(sys.stdin).get('status'))"; }
 
 echo "== static"
@@ -40,7 +43,7 @@ check "grafana is healthy" "[ \"\$(docker inspect -f '{{.State.Health.Status}}' 
 check "grafana database ok" "curl -s $G/api/health | grep -q '\"database\": *\"ok\"'"
 check "datasource 'prometheus' is provisioned, default and read-only" "gapi $G/api/datasources | $PY -c \"import sys,json; d=[x for x in json.load(sys.stdin) if x['uid']=='prometheus']; sys.exit(0 if d and d[0]['isDefault'] and d[0]['readOnly'] and d[0]['url']=='http://prometheus:9090' else 1)\""
 check "datasource health check succeeds" "[ \"\$(ds_ok)\" = OK ]"
-check "4 dashboards provisioned (host-vm, app-tasks, postgres, logs)" "[ \"\$(gapi \"$G/api/search?type=dash-db\" | $PY -c \"import sys,json; print(','.join(sorted(d['uid'] for d in json.load(sys.stdin))))\")\" = 'app-tasks,host-vm,logs,postgres' ]"
+check "the 6 required dashboards are provisioned (host-vm, app-tasks, postgres, logs, Node Exporter Full 1860, Three-Tier App – Production)" "dash_present"
 check "home dashboard is the application dashboard" "gapi $G/api/dashboards/home | $PY -c \"import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('redirectUri','').endswith('application-tasks-api') else 1)\""
 check "every dashboard query runs through Grafana and returns data" "$PY tests/e2e/grafana_panels_check.py > /tmp/panels.out 2>&1; tail -1 /tmp/panels.out | grep -q ' 0 failed'"
 echo "      ($(tail -1 /tmp/panels.out))"
@@ -70,7 +73,7 @@ check "datasource cannot be modified through the API" "[ \"\$(gcode -u '$AUTH' -
 check "datasource cannot be deleted through the API" "[ \"\$(gcode -u '$AUTH' -X DELETE $G/api/datasources/uid/prometheus)\" != 200 ] && [ \"\$(ds_ok)\" = OK ]"
 BOARD=$(gapi $G/api/dashboards/uid/host-vm | $PY -c "import sys,json; d=json.load(sys.stdin); print(json.dumps({'dashboard':d['dashboard'],'overwrite':True}))")
 check "provisioned dashboard cannot be overwritten through the API" "[ \"\$(gcode -u '$AUTH' -X POST $G/api/dashboards/db -H 'Content-Type: application/json' -d \"\$BOARD\")\" != 200 ]"
-check "provisioned dashboard cannot be deleted through the API" "[ \"\$(gcode -u '$AUTH' -X DELETE $G/api/dashboards/uid/host-vm)\" != 200 ] && [ \"\$(dash_count)\" = 4 ]"
+check "provisioned dashboard cannot be deleted through the API" "[ \"\$(gcode -u '$AUTH' -X DELETE $G/api/dashboards/uid/host-vm)\" != 200 ] && dash_present"
 
 echo "== exposure and hardening"
 check "grafana publishes only 127.0.0.1:$GPORT" "[ \"\$(docker port $GR)\" = '3000/tcp -> 127.0.0.1:$GPORT' ]"
@@ -137,7 +140,7 @@ check "alembic is still at head (no re-migration needed)" "docker exec $BE alemb
 sleep 20
 P_AFTER=$(cnt)
 check "Prometheus history survived ($P_BEFORE -> $P_AFTER samples)" "$PY -c \"import sys; sys.exit(0 if float('$P_AFTER')>=float('$P_BEFORE') and float('$P_BEFORE')>0 else 1)\""
-check "Grafana state survived (star persisted) and dashboards are provisioned" "gapi $G/api/user/stars | grep -q postgres && [ \"\$(dash_count)\" = 4 ]"
+check "Grafana state survived (star persisted) and dashboards are provisioned" "gapi $G/api/user/stars | grep -q postgres && dash_present"
 check "every dashboard query still returns data after the cycle" "$PY tests/e2e/grafana_panels_check.py > /tmp/panels.out 2>&1; tail -1 /tmp/panels.out | grep -q ' 0 failed'"
 gapi -X DELETE $G/api/user/stars/dashboard/uid/postgres >/dev/null
 TID=$(curl -s 'http://127.0.0.1:'$FPORT'/api/v1/tasks?limit=50' | $PY -c "import sys,json; print(next((t['id'] for t in json.load(sys.stdin)['items'] if t['title']=='$MARK'),''))")
