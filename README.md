@@ -104,10 +104,11 @@ beyond `127.0.0.1`. More detail: [docs/architecture.md](docs/architecture.md), [
 | File | Shows |
 |---|---|
 | `01-grafana-dashboards-list.png` | The 6 dashboards in folder *Monitoring* |
-| `02-node-exporter-full-1860.png` | Community dashboard, job `node` |
-| `03-three-tier-app-production.png` | Production dashboard, all four rows, with traffic |
+| `02-node-exporter-full-1860.png` | Community dashboard "Node Exporter Full" (title visible), job `node`, last 30 minutes (re-captured 2026-11-22 07:01 UTC; axis times are Bangladesh local time, UTC+6) |
+| `03-three-tier-app-production.png` | "Three-Tier App – Production" (title visible): all four tier rows fully visible, with traffic, last 30 minutes (re-captured 2026-11-22 07:00 UTC; axis times are Bangladesh local time, UTC+6) |
 | `04-prometheus-targets.png`, `05-prometheus-alerts-inactive.png` | Targets UP; all alert rules inactive |
-| `06-docker-compose-ps.png`, `07-alert-sink-firing-resolved.png` | Rendered from captured command output (not live terminal windows); `.txt` originals alongside |
+| `06-docker-compose-ps.png` | `docker compose ps`: all 14 containers healthy. Rendered from captured command output (not a live terminal window); `.txt` original alongside |
+| `07-alert-sink-firing-resolved.png` | Grafana Explore (Loki) view of the alert-sink log for the 2026-11-22 demo: the `FrontendDown` notification **firing** (10:32:50 local = 04:32:50 UTC) and **resolved** (10:33:50 local = 04:33:50 UTC); re-captured 2026-11-22 07:01 UTC. `07-alert-sink-firing-resolved.txt` is the earlier text capture of the first demo (2026-11-21 18:15 UTC) |
 | `08-grafana-frontend-availability-DOWN.png` | Controlled failure 2026-11-22 04:31 UTC: Frontend availability DOWN |
 | `09-prometheus-FrontendDown-FIRING.png` | Prometheus `/alerts`: `FrontendDown` FIRING (04:32 UTC) |
 | `10-prometheus-FrontendDown-after-recovery.png`, `11-grafana-frontend-availability-recovered.png` | After recovery: alert gone, panel UP |
