@@ -1,6 +1,6 @@
 # Night Watch: CI/CD and Hetzner VPS deployment
 
-Status: **prepared, not executed.** Nothing has been pushed, no secret exists, and no server has been touched.
+Status: **deployment prepared, not executed.** The repository `Bhabotos/night-watch` exists and the validation workflow has run on GitHub (see the evidence table below); no `production` secret exists and no server has been touched.
 
 ## Pipeline
 
@@ -60,7 +60,7 @@ Manual rollback (as the deployment user on the VPS): `cd <DEPLOY_PATH> && ls bac
 8. How you will reach Grafana and Prometheus (SSH tunnel, or a reverse proxy with TLS and which domain).
 9. Which notification channel the server should use (webhook receiver only, or Discord/Telegram), because its secrets belong in the server's `.env`.
 
-## Creating the `night-watch` repository (NOT yet run; needs your approval for each step)
+## Creating the `night-watch` repository (done 2026-11-22 with a feature branch and a PR; kept for reference)
 
 `gh` is logged in as `Bhabotos` (scopes `repo`, `workflow`). `Bhabotos/night-watch` does not exist. The existing remote `origin`
 (`monitoring-3tier-project`) is left untouched; the new remote gets a different name.
@@ -85,6 +85,6 @@ the validation workflow runs on it automatically.
 | Workflow YAML | `.github/workflows/*.yml`: parsed with PyYAML, triggers and `permissions: contents: read` checked by `tests/ci/test_workflows.py` (actionlint has **not** been run) | parsed OK |
 | Successful validation, locally | `sh scripts/validate_monitoring.sh` | done, 2026-11-22 (see `docs/NIGHT_WATCH_EVIDENCE.md`) |
 | Failed validation, locally | `sh tests/ci/negative_test.sh` (throw-away copy, 5 injected faults) | done, 2026-11-22; a bug in fault 5 of the script was fixed first (see evidence) |
-| Successful PR run on GitHub | open a PR with a harmless change | **needs push + your approval** |
-| Failed run on GitHub | temporary branch `ci-demo-invalid` that breaks `alerts.yml` (same fault as the negative test), PR, screenshot the red check, then close the PR and delete the branch | **needs push + your approval** |
+| Successful PR run on GitHub | PR #1, run 44986089290 | **done 2026-11-22, success** (screenshot `12`) |
+| Failed run on GitHub | PR #2 (`ci-demo-invalid`): invalid `BackendDown` expression, run 44986168079; fixed in `b4c97c8`, run 44986230651 green | **done 2026-11-22: failure then success** (screenshots `13`, `14`) |
 | Deployment on push to `main` | merge the PR after the green run and approve the `production` environment | **needs VPS + secrets + approval** |

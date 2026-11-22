@@ -111,6 +111,11 @@ beyond `127.0.0.1`. More detail: [docs/architecture.md](docs/architecture.md), [
 | `08-grafana-frontend-availability-DOWN.png` | Controlled failure 2026-11-22 04:31 UTC: Frontend availability DOWN |
 | `09-prometheus-FrontendDown-FIRING.png` | Prometheus `/alerts`: `FrontendDown` FIRING (04:32 UTC) |
 | `10-prometheus-FrontendDown-after-recovery.png`, `11-grafana-frontend-availability-recovered.png` | After recovery: alert gone, panel UP |
+| `12-github-actions-green-run-pr1.png` | GitHub Actions: Monitoring validation green on PR #1 |
+| `13-github-actions-red-run-pr2-expected-failure.png` | Deliberate failure (invalid PromQL in `BackendDown`), PR #2 |
+| `14-github-actions-green-after-fix-pr2.png` | Green again after the fix |
+
+CI: repository https://github.com/Bhabotos/night-watch, [PR #1](https://github.com/Bhabotos/night-watch/pull/1) (green run 44986089290), [PR #2](https://github.com/Bhabotos/night-watch/pull/2) (red run 44986168079, green again 44986230651); details in [docs/NIGHT_WATCH_EVIDENCE.md](docs/NIGHT_WATCH_EVIDENCE.md). Deployment to the VPS is prepared but not executed.
 
 The matching raw timeline is `evidence/alert_demo_2026-11-22T0430Z.txt` (firing, webhook delivery, recovery, resolved). Times are UTC; Bangladesh time is UTC+6 (04:31 UTC = 10:31).
 

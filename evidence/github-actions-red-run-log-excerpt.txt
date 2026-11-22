@@ -1,0 +1,32 @@
+# GitHub Actions run 44986168079 (RED, expected): Bhabotos/night-watch PR #2, commit 05eb8f0
+# Fetched with: gh run view 44986168079 --log  (failing check lines only; UTC run time 2026-11-22T04:41Z = 10:41 Bangladesh time)
+PASS  docker compose config is valid (placeholders from .env.example)
+FAIL  promtool check config (prometheus.yml and the rule files it loads)
+          FAILED:
+        /etc/prometheus/rules/alerts.yml: 15:15: group "application-tier-down", rule 2, "BackendDown": could not parse expression: 1:18: parse error: unexpected "=" in label matching, expected "," or "}"
+FAIL  promtool check rules (alerts.yml, recording.yml)
+          FAILED:
+        /rules/alerts.yml: 15:15: group "application-tier-down", rule 2, "BackendDown": could not parse expression: 1:18: parse error: unexpected "=" in label matching, expected "," or "}"
+FAIL  promtool test rules alerts_test.yml
+          FAILED:
+        ../../monitoring/prometheus/rules/alerts.yml: 15:15: group "application-tier-down", rule 2, "BackendDown": could not parse expression: 1:18: parse error: unexpected "=" in label matching, expected "," or "}"
+        ../../monitoring/prometheus/rules/alerts.yml: 15:15: group "application-tier-down", rule 2, "BackendDown": could not parse expression: 1:18: parse error: unexpected "=" in label matching, expected "," or "}"
+        ../../monitoring/prometheus/rules/alerts.yml: 15:15: group "application-tier-down", rule 2, "BackendDown": could not parse expression: 1:18: parse error: unexpected "=" in label matching, expected "," or "}"
+        ../../monitoring/prometheus/rules/alerts.yml: 15:15: group "application-tier-down", rule 2, "BackendDown": could not parse expression: 1:18: parse error: unexpected "=" in label matching, expected "," or "}"
+        ../../monitoring/prometheus/rules/alerts.yml: 15:15: group "application-tier-down", rule 2, "BackendDown": could not parse expression: 1:18: parse error: unexpected "=" in label matching, expected "," or "}"
+        ../../monitoring/prometheus/rules/alerts.yml: 15:15: group "application-tier-down", rule 2, "BackendDown": could not parse expression: 1:18: parse error: unexpected "=" in label matching, expected "," or "}"
+        ../../monitoring/prometheus/rules/alerts.yml: 15:15: group "application-tier-down", rule 2, "BackendDown": could not parse expression: 1:18: parse error: unexpected "=" in label matching, expected "," or "}"
+        ../../monitoring/prometheus/rules/alerts.yml: 15:15: group "application-tier-down", rule 2, "BackendDown": could not parse expression: 1:18: parse error: unexpected "=" in label matching, expected "," or "}"
+PASS  promtool test rules recording_rules_test.yml
+PASS  amtool check-config alertmanager.yml
+PASS  blackbox_exporter --config.check blackbox.yml
+PASS  valid JSON: monitoring/grafana/dashboards/application.json
+PASS  valid JSON: monitoring/grafana/dashboards/host.json
+PASS  valid JSON: monitoring/grafana/dashboards/logs.json
+PASS  valid JSON: monitoring/grafana/dashboards/night-watch/node-exporter-full-1860.json
+PASS  valid JSON: monitoring/grafana/dashboards/night-watch/three-tier-production.json
+PASS  valid JSON: monitoring/grafana/dashboards/postgres.json
+PASS  dashboard lint (titles, uids, units, datasources, no secrets)
+PASS  dashboard regression tests (required dashboards, 6+ panels, 3+ visualization types, rows per tier)
+PASS  workflow safety tests (PR validation, deploy only from main after validation)
+PASS  .env is not tracked by git

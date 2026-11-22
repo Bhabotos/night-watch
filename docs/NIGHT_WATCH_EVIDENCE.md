@@ -432,3 +432,38 @@ After the run: nginx healthy (started 04:32:55Z, `RestartCount=0`), `http://127.
 unknown Alertmanager receiver, truncated dashboard JSON, renamed dashboard); validation passed again afterwards. Final secret scan of tracked and untracked files: no matches; `.env` is gitignored.
 Git: one commit (`86013df`, 2026-11-15), equal to `origin/main`; no commit, push, stash or tag was made during Night Watch work. This is local validation only: **no GitHub Actions run exists**, and
 `Bhabotos/night-watch` does not exist yet.
+
+
+---
+
+# Phase 8: real GitHub Actions evidence (2026-11-22, 04:38-04:43 UTC = 10:38-10:43 Bangladesh time, UTC+6)
+
+Repository: https://github.com/Bhabotos/night-watch (public, created 2026-11-22). Remote `night-watch` was added; `origin` (`monitoring-3tier-project`) is unchanged.
+`main` on the new repository holds the pre-existing commit `86013df` (pushed so that a pull request has a base; it contains no workflows, so nothing ran). Nothing was merged and nothing was deployed.
+
+| Item | Value |
+|---|---|
+| Submission branch / commit | `night-watch-submission` @ `f9eba60` (42 files; `.env` untracked; staged secret scan clean) |
+| Pull request 1 (green) | https://github.com/Bhabotos/night-watch/pull/1 (`night-watch-submission` -> `main`, open, not merged) |
+| Pull request 2 (negative test) | https://github.com/Bhabotos/night-watch/pull/2 (`ci-demo-invalid` -> `night-watch-submission`, open, not for merging) |
+
+## Actions runs (workflow *Monitoring validation*, trigger `pull_request`; all verified with `gh run view`)
+| Run | Commit | Result | What it proves |
+|---|---|---|---|
+| https://github.com/Bhabotos/night-watch/actions/runs/44986089290 | `f9eba60` | **success** (22 s job), all 19 checks PASS in the log | Normal validation on GitHub's runner |
+| https://github.com/Bhabotos/night-watch/actions/runs/44986168079 | `05eb8f0` | **failure** (expected) | Validation catches a bad alert rule |
+| https://github.com/Bhabotos/night-watch/actions/runs/44986230651 | `b4c97c8` | **success** | Validation passes again after the fix |
+
+## Negative test: failure, reason and correction
+- **Injected fault** (commit `05eb8f0`, branch `ci-demo-invalid`): in `monitoring/prometheus/rules/alerts.yml` line 15 the `BackendDown` expression `up{job="backend"} == 0` was changed to `up{job="backend" == 0` (closing brace removed).
+- **Failure reason (from the run log):** `alerts.yml: 15:15: group "application-tier-down", rule 2, "BackendDown": could not parse expression: 1:18: parse error: unexpected "=" in label matching, expected "," or "}"`.
+  Three checks failed: `promtool check config`, `promtool check rules` and `promtool test rules alerts_test.yml`; the other checks passed. The job ended with exit code 1 and the check was red. See `evidence/github-actions-red-run-log-excerpt.txt`.
+- **Correction** (commit `b4c97c8`): the brace was restored; the branch then has no diff against `night-watch-submission`, and run 44986230651 is green.
+- The fault was made in a separate git worktree outside the project folder, so the live bind-mounted `alerts.yml` and the running stack were never touched.
+- The deploy workflow did not run (it triggers only on push to `main`), and no secrets were needed.
+
+## Screenshots
+`12-github-actions-green-run-pr1.png`, `13-github-actions-red-run-pr2-expected-failure.png`, `14-github-actions-green-after-fix-pr2.png` are real headless-Chrome captures of the public run pages. The page header shows "Sign in to view logs" (the logs are fetched with `gh`).
+
+## Still open
+Merging PR 1 into `main` (needs your approval; it would start the deploy workflow, which stops at the SSH step because no `production` secrets exist), Hetzner details and secrets, and an optional datasource "Save & test" screenshot.
