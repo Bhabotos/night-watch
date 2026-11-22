@@ -12,7 +12,7 @@ groups:
           description: "The Blackbox HTTP probe of {{ $labels.instance }} has failed for more than 1 minute."
 
       - alert: BackendDown
-        expr: up{job="backend"} == 0
+        expr: up{job="backend" == 0
         for: 1m
         labels: {severity: critical, tier: backend}
         annotations:
